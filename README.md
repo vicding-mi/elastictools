@@ -1,3 +1,4 @@
+# Moved to [vixtk](https://github.com:vicding-mi/vixtk)
 # Tools to monitor the health of INEO services and indexer
 
 This repository contains a set of tools and scripts designed to monitor the health and performance of INEO services and indexer.

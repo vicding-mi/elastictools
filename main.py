@@ -1,30 +1,36 @@
 import json
-from elasticsearch import Elasticsearch
-from elasticsearch.helpers import scan
+import argparse
+import datetime
+import traceback
+from os import environ
+
 import pandas as pd
 from tqdm import tqdm
+from elasticsearch import Elasticsearch
+from elasticsearch.helpers import scan
 
 
 class ElasticsearchDataExporter:
-    def __init__(self, hosts=['localhost:9200'], http_auth=None, timeout=30):
+    def __init__(self, scheme, host, port):
         """
         Initialize Elasticsearch connection
 
         Args:
             hosts: List of Elasticsearch hosts
             http_auth: Authentication tuple (username, password)
-            timeout: Request timeout in seconds
         """
-        self.es = Elasticsearch(
-            hosts=hosts,
-            http_auth=http_auth,
-            timeout=timeout,
-            max_retries=10,
-            retry_on_timeout=True
-        )
+        # self.es = Elasticsearch(
+        #     hosts=hosts,
+        #     http_auth=http_auth,
+        #     max_retries=10,
+        #     retry_on_timeout=True
+        # )
+        self.es = Elasticsearch([{"scheme": scheme, "host": host, "port": port}])
+
+        print(f"🔌 Connecting to Elasticsearch... {scheme=} {host=} {port=}")
 
         # Test connection
-        if self.es.ping():
+        if self.es.info():
             print("✅ Connected to Elasticsearch")
         else:
             raise ConnectionError("❌ Could not connect to Elasticsearch")
@@ -179,7 +185,6 @@ class ElasticsearchDataExporter:
             filename: Output filename (auto-generated if None)
         """
         if not filename:
-            import datetime
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"elasticsearch_export_{timestamp}.{output_format}"
 
@@ -265,73 +270,9 @@ class ElasticsearchDataExporter:
         print("🔌 Connection closed")
 
 
-# ============================================================================
-# USAGE EXAMPLES
-# ============================================================================
-
-def example_basic():
-    """Basic example - fetch all documents from an index"""
-    # Initialize exporter
-    exporter = ElasticsearchDataExporter(
-        hosts=['localhost:9200'],
-        http_auth=('username', 'password')  # Remove if no auth
-    )
-
-    try:
-        # List indices
-        indices = exporter.get_indices()
-
-        # Fetch all documents from specific index
-        index_name = "my_large_index"
-        documents = exporter.get_all_documents_scroll(
-            index_name=index_name,
-            size=2000,  # Adjust based on your cluster's performance
-            scroll_time="5m"
-        )
-
-        # Export to JSON
-        exporter.export_to_file(documents, output_format='json')
-
-        # Or export to CSV
-        # exporter.export_to_file(documents, output_format='csv')
-
-    finally:
-        exporter.close()
-
-
-def example_with_filter():
-    """Example with query filter"""
-    exporter = ElasticsearchDataExporter(hosts=['localhost:9200'])
-
-    try:
-        # Define a query to filter documents
-        query = {
-            "query": {
-                "bool": {
-                    "must": [
-                        {"range": {"timestamp": {"gte": "2024-01-01"}}},
-                        {"term": {"status": "active"}}
-                    ]
-                }
-            },
-            "_source": ["field1", "field2", "timestamp"]  # Only fetch specific fields
-        }
-
-        documents = exporter.get_all_documents_scroll(
-            index_name="my_index",
-            query=query,
-            size=1000
-        )
-
-        exporter.export_to_file(documents, output_format='jsonl')
-
-    finally:
-        exporter.close()
-
-
-def example_memory_efficient():
+def example_memory_efficient(scheme, host, port):
     """Memory-efficient streaming example"""
-    exporter = ElasticsearchDataExporter(hosts=['localhost:9200'])
+    exporter = ElasticsearchDataExporter(scheme=scheme, host=host, port=port)
 
     try:
         # Stream directly to file (uses minimal memory)
@@ -344,9 +285,9 @@ def example_memory_efficient():
         exporter.close()
 
 
-def example_multiple_indices():
+def example_multiple_indices(scheme, host, port):
     """Export from multiple indices"""
-    exporter = ElasticsearchDataExporter(hosts=['localhost:9200'])
+    exporter = ElasticsearchDataExporter(scheme, host, port)
 
     try:
         indices = ["index_2024_*", "logs_*"]  # Using patterns
@@ -370,9 +311,9 @@ def example_multiple_indices():
         exporter.close()
 
 
-def example_with_resume():
+def example_with_resume(scheme, host, port):
     """Example with resume capability"""
-    exporter = ElasticsearchDataExporter(hosts=['localhost:9200'])
+    exporter = ElasticsearchDataExporter(scheme=scheme, host=host, port=port)
 
     try:
         # Create a checkpoint file for resuming
@@ -416,10 +357,10 @@ def example_with_resume():
 # ============================================================================
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description='Export Elasticsearch data')
-    parser.add_argument('--host', default='localhost:9200', help='Elasticsearch host')
+    parser.add_argument('--scheme', default='http', help='Elasticsearch scheme (http or https)')
+    parser.add_argument('--host', default='indexer', help='Elasticsearch host')
+    parser.add_argument('--port', default='9200', help='Elasticsearch port')
     parser.add_argument('--index', required=True, help='Index name (supports wildcards)')
     parser.add_argument('--username', help='Username for authentication')
     parser.add_argument('--password', help='Password for authentication')
@@ -435,8 +376,9 @@ if __name__ == "__main__":
 
     # Initialize exporter
     exporter = ElasticsearchDataExporter(
-        hosts=[args.host],
-        http_auth=auth
+        scheme=args.scheme,
+        host=args.host,
+        port=int(args.port)
     )
 
     try:
@@ -469,8 +411,6 @@ if __name__ == "__main__":
 
     except Exception as e:
         print(f"\n❌ Export failed: {str(e)}")
-        import traceback
-
         traceback.print_exc()
 
     finally:
